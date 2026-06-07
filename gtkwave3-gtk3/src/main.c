@@ -85,8 +85,10 @@
 #include <gtkosxapplication.h>
 #endif
 
+#if !defined __MINGW32__
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#endif
 
 char *gtkwave_argv0_cached = NULL;
 
@@ -1336,6 +1338,20 @@ while (1)
 			inet_addr_str[colon_offset] = '\0';
 			port = atoi(&optarg[colon_offset + 1]);
 			fprintf(stderr, "DEBUG: got UDP arg %s:%d", inet_addr_str, port);
+			#if defined __MINGW32__
+			/* Windows requires Winsock to be initialized before any socket call. */
+			{
+				static int wsa_started = 0;
+				if(!wsa_started) {
+					WSADATA wsa_data;
+					if(WSAStartup(MAKEWORD(2,2), &wsa_data) != 0) {
+						fprintf(stderr, "GTKWAVE | WSAStartup failed; UDP target disabled\n");
+						break;
+					}
+					wsa_started = 1;
+				}
+			}
+			#endif
 			GLOBALS->udp_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 			if(GLOBALS->udp_sockfd < 0){
 				fprintf(stderr, "GTKWAVE | Can't open socket to %s:%d\n", inet_addr_str, port);

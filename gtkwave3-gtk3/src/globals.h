@@ -14,6 +14,10 @@
 #include <stdio.h>
 
 #if defined __MINGW32__
+/* winsock2.h MUST be included before windows.h: otherwise windows.h pulls in
+   the legacy winsock.h and the two headers conflict. */
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <io.h>
 #endif
@@ -66,8 +70,10 @@
 #include "wavealloca.h"
 #include "jrb.h"
 #include "extload.h"
+#if !defined __MINGW32__
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#endif
 
 #ifdef _WAVE_HAVE_JUDY
 #include <Judy.h>

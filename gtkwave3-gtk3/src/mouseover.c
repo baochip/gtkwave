@@ -18,8 +18,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined __MINGW32__
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#endif
 #include "main.h"
 #include "currenttime.h"
 #include "color.h"
@@ -198,7 +200,7 @@ if(t->name)
 							strncpy(&udp_msg[2], str, 62);
 							sendto(
 								GLOBALS->udp_sockfd, udp_msg, msg_len + 2, 0,
-								GLOBALS->udp_servaddr, sizeof(struct sockaddr_in));
+								(struct sockaddr *)GLOBALS->udp_servaddr, sizeof(struct sockaddr_in));
 							}
 						}
 						else
@@ -388,7 +390,7 @@ if(t)
 		// printf("send %d: %s %x %x\n", GLOBALS->udp_sockfd, t->name, GLOBALS->udp_servaddr->sin_port, GLOBALS->udp_servaddr->sin_addr.s_addr);
 		sendto(
 			GLOBALS->udp_sockfd, udp_msg, msg_len + 2, 0,
-			GLOBALS->udp_servaddr, sizeof(struct sockaddr_in));
+			(struct sockaddr *)GLOBALS->udp_servaddr, sizeof(struct sockaddr_in));
 	}
 	if(name_charlen)
 		{
