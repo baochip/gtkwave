@@ -4,6 +4,10 @@ This is a fork of the GTKWave simulator. The main feature of this fork is it imp
 
 The version of GTKwave with the patch is [`gtkwave3-gtk3`](/gtkwave3-gtk3).
 
+## Pre-Built Binaries
+
+Linux and Windows users can download pre-built, stand-alone binaries under [releases](https://github.com/baochip/gtkwave/releases).
+
 ## Build Notes
 
 On Ubuntu, the following dependencies are required:
@@ -11,10 +15,6 @@ On Ubuntu, the following dependencies are required:
 `apt-get install libtcl8.6 tcl8.6-dev libtk8.6 tk8.6 tk8.6-dev gperf zlib1g-dev libbz2-dev liblzma-dev libgtk2.0-dev`
 
 You can then follow the instructions [here](./gtkwave3-gtk3/README.md).
-
-## Pre-Built Binaries
-
-Linux and Windows users can download pre-built, stand-alone binaries under [releases](https://github.com/baochip/gtkwave/releases).
 
 ## About the Code Zoom Protocol
 
