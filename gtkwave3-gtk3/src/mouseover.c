@@ -385,6 +385,7 @@ if(t)
 		udp_msg[0] = 1; // designates the name type
 		udp_msg[1] = msg_len;
 		strncpy(&udp_msg[2], t->name, 62);
+		// printf("send %d: %s %x %x\n", GLOBALS->udp_sockfd, t->name, GLOBALS->udp_servaddr->sin_port, GLOBALS->udp_servaddr->sin_addr.s_addr);
 		sendto(
 			GLOBALS->udp_sockfd, udp_msg, msg_len + 2, 0,
 			GLOBALS->udp_servaddr, sizeof(struct sockaddr_in));
