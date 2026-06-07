@@ -26,6 +26,12 @@ prepare() {
 build() {
   cd "$srcdir/gtkwave3-gtk3"
 
+  # GtkWave 3.x predates C23, but current MSYS2 GCC defaults to C23, where an
+  # empty-parens declaration like `int getopt ();` means `int getopt(void)` and
+  # collides with the system getopt prototype. Build as gnu17 -- the dialect the
+  # code expects, and what the Linux toolchain still defaults to.
+  export CFLAGS="${CFLAGS} -std=gnu17"
+
   ./configure \
     --prefix=${MINGW_PREFIX} \
     --host=${MINGW_CHOST} \
