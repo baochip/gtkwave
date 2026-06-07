@@ -36,6 +36,23 @@ for item in applications icons "$sharedir"; do
   cp -r "$mingw"/share/"$item" "$tmpdir"/share/
 done
 
+# --- drop pixbuf loaders that crash GTK on Windows ---------------------------
+# The legacy XPM loader re-enters GdkPixbuf type registration at startup and
+# brings down GTK ("cannot register existing type 'GdkPixbuf'"); the Rust-based
+# SVG loader is a known troublemaker for the same class of failure. gtkwave
+# needs neither to view waveforms, and its icons render fine without them.
+# Remove the loader DLLs and strip their entries from loaders.cache. Done BEFORE
+# the ldd step below so the SVG loader's heavy dependency (librsvg) isn't pulled
+# into bin. If you ever want SVG icon rendering back, delete the svg lines here.
+for d in "$tmpdir"/lib/gdk-pixbuf-2.0/*/; do
+  [ -d "$d/loaders" ] || continue
+  rm -f "$d/loaders/libpixbufloader-xpm.dll" "$d/loaders/pixbufloader_svg.dll"
+  if [ -f "$d/loaders.cache" ]; then
+    awk 'BEGIN{RS="";ORS="\n\n"} !/libpixbufloader-xpm\.dll|pixbufloader_svg\.dll/' \
+      "$d/loaders.cache" > "$d/loaders.cache.tmp" && mv "$d/loaders.cache.tmp" "$d/loaders.cache"
+  fi
+done
+
 # --- best-effort: still honor the legacy .inc DLL lists, but skip any entry
 #     that no longer exists (e.g. a bumped soname) instead of aborting. This
 #     preserves any intentionally-bundled DLL that isn't in the import graph. --
@@ -71,4 +88,13 @@ collect_dlls() {
 
 collect_dlls "$tmpdir"/bin/*.exe $(find "$tmpdir"/lib -name '*.dll' 2>/dev/null)
 
-tar czf ../../"$tmpdir"_mingw"$bits"_standalone.tgz -C "$tmpdir" .
+# librsvg is only used by the SVG loader we removed above; drop it if anything
+# (e.g. the legacy .inc lists) pulled it into bin so it isn't dead weight.
+rm -f "$tmpdir"/bin/librsvg-2-2.dll
+
+# --- package ----------------------------------------------------------------
+# Ship a .zip rather than a .tgz: Windows Explorer extracts .zip with a
+# double-click ("Extract All") with no extra tooling, whereas .tgz needs a
+# separate archiver most Windows users don't have. Contents sit at the archive
+# root (the cd into "$tmpdir"), so extraction yields one clean folder.
+( cd "$tmpdir" && zip -r -q "../../../${tmpdir}_mingw${bits}_standalone.zip" . )
