@@ -1,79 +1,214 @@
-name: 'build'
+name: build
 
+# Manual trigger only. Pushing to udp-send does NOT build anything.
+# Run it from the CLI:   gh workflow run build.yml --ref udp-send
+# (optionally shipping a release):
+#                        gh workflow run build.yml --ref udp-send -f release_tag=v1.0.0
+# ...or via the GitHub UI: Actions tab -> "build" -> "Run workflow".
 on:
-  push:
-  schedule:
-    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to publish a GitHub release as (e.g. v1.0.0). Leave blank to just build artifacts without making a release."
+        required: false
+        default: ""
+
+# Needed so the `release` job can create the release.
+permissions:
+  contents: write
 
 jobs:
 
-  msys2:
+  # ---------------------------------------------------------------------------
+  # Windows: build the MSYS2/MinGW package + the standalone .tgz bundle.
+  # GTK3 only; 32-bit (MINGW32/i686) is dropped because MSYS2 has wound down
+  # 32-bit support. Add it back to the matrix only if you truly need it.
+  # MINGW64 is msvcrt-based and runs on the widest range of Windows versions;
+  # switch to UCRT64 if you only care about Windows 10+.
+  # ---------------------------------------------------------------------------
+  windows:
     runs-on: windows-latest
     strategy:
-        fail-fast: false
-        max-parallel: 2
-        matrix:
-          target: [
-            { msys2: MINGW32, arch: i686 },
-            { msys2: MINGW64, arch: x86_64}
-          ]
-          gtk: [ 2, 3 ]
-    continue-on-error: true
+      fail-fast: false
+      matrix:
+        target:
+          - { msys2: MINGW64, arch: x86_64 }
+          # - { msys2: MINGW32, arch: i686 }   # deprecated upstream
     defaults:
       run:
         shell: msys2 {0}
     env:
       MINGW_INSTALLS: ${{ matrix.target.msys2 }}
     steps:
+      - name: Normalize line endings
+        run: git config --global core.autocrlf input
+        shell: bash
 
-    - run: git config --global core.autocrlf input
-      shell: bash
+      - uses: actions/checkout@v4
 
-    - uses: actions/checkout@v2
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.target.msys2 }}
+          update: true
+          install: >
+            base-devel
+            git
+            mingw-w64-${{ matrix.target.arch }}-toolchain
+            mingw-w64-${{ matrix.target.arch }}-autotools
 
-    - uses: msys2/setup-msys2@v2
-      with:
-        update: true
-        install: >
-          base-devel
-          git
-          mingw-w64-${{ matrix.target.arch }}-toolchain
-          mingw-w64-${{ matrix.target.arch }}-autotools
-        msystem: ${{ matrix.target.msys2 }}
+      - name: Build package (gtk3)
+        working-directory: MSYS2/gtk3
+        run: |
+          tries=0
+          # Retry up to 3x: makepkg occasionally hits a spurious 'Bad address'.
+          while [ $tries -lt 3 ]; do
+            makepkg-mingw --noconfirm --noprogressbar -sCLfc && exit 0
+            tries=$((tries+1))
+          done
+          exit 1
 
-    - name: Build package
-      working-directory: MSYS2/gtk${{ matrix.gtk }}
-      run: |
-        tries=0
-        # Try building three times due to the arbitrary 'Bad address' error
-        while [ $tries -lt 3 ]; do
-          makepkg-mingw --noconfirm --noprogressbar -sCLfc && exit 0
-          tries=$((tries+1))
-        done
-        exit 1
+      - name: Install and create standalone package
+        working-directory: ./MSYS2/gtk3
+        run: |
+          pacman -U --noconfirm mingw-*gtkwave*.pkg.tar.zst
+          mv mingw-*gtkwave*.pkg.tar.zst ../../
+          ../standalone_pkg.sh
 
-    - name: Install and create standalone package
-      working-directory: ./MSYS2/gtk${{ matrix.gtk }}
-      run: |
-        pacman -U --noconfirm mingw-*gtkwave*.pkg.tar.zst
-        mv mingw-*gtkwave*.pkg.tar.zst ../../
-        ../standalone_pkg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.target.arch }}-gtk3
+          if-no-files-found: error
+          path: |
+            mingw-*gtkwave*.pkg.tar.zst
+            gtkwave_*_standalone.tgz
 
-    - uses: actions/upload-artifact@v2
-      with:
-        path: |
-          mingw-*gtkwave*.pkg.tar.zst
-          gtkwave_*_standalone.tgz
-
-  nightly:
-    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-    needs: [ msys2 ]
+  # ---------------------------------------------------------------------------
+  # Linux: build a single AppImage that runs on any reasonably modern distro.
+  #
+  # Built inside an OLD container (Debian 11 "bullseye", glibc 2.31) on purpose:
+  # glibc is forward-compatible, not backward-compatible, so building on old
+  # glibc lets the result run on NEWER systems. glibc 2.31 covers:
+  #   Ubuntu 20.04+, Debian 11+, RHEL/Alma/Rocky 9+, current Arch/Fedora.
+  # It will NOT run on RHEL 8 (glibc 2.28) or older. To go that low, swap the
+  # container for e.g. `almalinux:8` and translate the apt deps to dnf.
+  # ---------------------------------------------------------------------------
+  linux-appimage:
     runs-on: ubuntu-latest
+    container:
+      image: debian:bullseye-slim
+      options: --privileged          # helps FUSE-based tooling inside the container
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
-    - uses: actions/download-artifact@v2
-    - uses: eine/tip@master
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        tag: 'nightly'
-        rm: true
-        files: artifact/*
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential git ca-certificates curl file \
+            autoconf automake libtool pkg-config \
+            gperf flex bison \
+            libgtk-3-dev tcl-dev tk-dev \
+            libbz2-dev liblzma-dev zlib1g-dev \
+            desktop-file-utils imagemagick libfuse2
+
+      - uses: actions/checkout@v4
+
+      - name: Configure, build, install into AppDir
+        working-directory: gtkwave3-gtk3
+        run: |
+          ./autogen.sh
+          # --enable-gtk3 is REQUIRED; without it gtkwave builds against GTK2.
+          # tcl/tk are auto-detected from tcl-dev/tk-dev. If configure fails to
+          # find them, pass --with-tcl=/usr/lib --with-tk=/usr/lib (adjust path),
+          # or drop tcl-dev/tk-dev and add --disable-tcl to build without it.
+          ./configure --enable-gtk3 --prefix=/usr
+          make -j"$(nproc)"
+          make install DESTDIR="$GITHUB_WORKSPACE/AppDir"
+
+      - name: Provide desktop entry + icon
+        run: |
+          mkdir -p AppDir/usr/share/applications \
+                   AppDir/usr/share/icons/hicolor/256x256/apps
+          cat > AppDir/usr/share/applications/gtkwave.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=GTKWave
+          GenericName=Waveform Viewer
+          Exec=gtkwave %F
+          Icon=gtkwave
+          Categories=Development;Electronics;
+          Terminal=false
+          EOF
+          # Use a shipped icon if one exists; otherwise synthesize a placeholder
+          # so linuxdeploy has a valid icon (swap in your real branding later).
+          ICON=AppDir/usr/share/icons/hicolor/256x256/apps/gtkwave.png
+          if ! find AppDir gtkwave3-gtk3 -name 'gtkwave*.png' -print -quit | grep -q .; then
+            convert -size 256x256 xc:'#1e3a5f' -gravity center \
+              -fill white -pointsize 40 -annotate 0 'GTKWave' "$ICON"
+          else
+            cp "$(find AppDir gtkwave3-gtk3 -name 'gtkwave*.png' -print -quit)" "$ICON"
+          fi
+
+      - name: Fetch linuxdeploy + GTK plugin
+        run: |
+          base=https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous
+          curl -fsSL -o linuxdeploy "$base/linuxdeploy-x86_64.AppImage"
+          curl -fsSL -o linuxdeploy-plugin-gtk \
+            https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          chmod +x linuxdeploy linuxdeploy-plugin-gtk
+          # No working FUSE in CI containers: extract the AppImage instead.
+          ./linuxdeploy --appimage-extract >/dev/null
+          mv squashfs-root linuxdeploy.AppDir
+
+      - name: Build AppImage
+        env:
+          DEPLOY_GTK_VERSION: "3"
+          APPIMAGE_EXTRACT_AND_RUN: "1"   # let bundled appimagetool run without FUSE
+        run: |
+          export PATH="$PWD:$PWD/linuxdeploy.AppDir/usr/bin:$PATH"
+          ./linuxdeploy.AppDir/AppRun \
+            --appdir AppDir \
+            --plugin gtk \
+            --output appimage \
+            --desktop-file AppDir/usr/share/applications/gtkwave.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/gtkwave.png
+          mv ./*.AppImage gtkwave-x86_64.AppImage
+
+      - name: Smoke test (does it launch?)
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          ./gtkwave-x86_64.AppImage --version || ./gtkwave-x86_64.AppImage --help || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64-appimage
+          if-no-files-found: error
+          path: gtkwave-x86_64.AppImage
+
+  # ---------------------------------------------------------------------------
+  # Publish a versioned GitHub release with all artifacts, but ONLY when
+  # passed a release_tag at dispatch time. If left blank, this job is
+  # skipped and the builds are still downloadable from the run's Artifacts.
+  # ---------------------------------------------------------------------------
+  release:
+    if: inputs.release_tag != ''
+    needs: [ windows, linux-appimage ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            dist/**/*.AppImage
+            dist/**/*.tgz
+            dist/**/*.pkg.tar.zst
