@@ -53,8 +53,13 @@ jobs:
           install: >
             base-devel
             git
+            intltool
             mingw-w64-${{ matrix.target.arch }}-toolchain
             mingw-w64-${{ matrix.target.arch }}-autotools
+            mingw-w64-${{ matrix.target.arch }}-gperf
+            mingw-w64-${{ matrix.target.arch }}-gtk3
+            mingw-w64-${{ matrix.target.arch }}-tcl
+            mingw-w64-${{ matrix.target.arch }}-tk
 
       - name: Build package (gtk3)
         working-directory: MSYS2/gtk3
