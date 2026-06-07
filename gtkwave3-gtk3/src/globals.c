@@ -1319,6 +1319,9 @@ FALSE, /*save_on_exit */
 1, /* do_zoom_center 660 */
 0, /* do_initial_zoom_fit 661 */
 0, /* do_initial_zoom_fit_used */
+
+0, /* udp_sockfd */
+NULL /* sockaddr_in */
 };
 
 
@@ -2199,6 +2202,14 @@ void reload_into_new_context_2(void)
 	}
 #endif
 
+ // save the UDP socket info here, for later copying. The init routine seems
+ // to have a buffer overrun that corrupts the init at this point.
+ int saved_socket_fd = GLOBALS->udp_sockfd; // preserve fd state, if any
+ struct sockaddr_in  saved_addr;
+ memcpy(&saved_addr, GLOBALS->udp_servaddr, sizeof(struct sockaddr_in));
+ // printf("1. saved {%x}, port {%d} addr {%x}", saved_socket_fd, saved_addr.sin_port, saved_addr.sin_addr.s_addr);
+
+
  /* erase any old tabbed contexts if they exist... */
  dead_context_sweep();
 
@@ -2540,6 +2551,20 @@ void reload_into_new_context_2(void)
  GLOBALS->ignore_savefile_pos = cached_ignore_savefile_pos;
  GLOBALS->ignore_savefile_size = cached_ignore_savefile_size;
  GLOBALS->splash_disable = cached_splash_disable;
+
+ // restore UDP socket - placed at bottom because the routine above is corrupting
+ // the global state, and not sure why
+ GLOBALS->udp_sockfd = saved_socket_fd;
+ GLOBALS->udp_servaddr = malloc_2(sizeof(struct sockaddr_in));
+ memset(GLOBALS->udp_servaddr, 0, sizeof(struct sockaddr_in));
+ memcpy(GLOBALS->udp_servaddr, &saved_addr, sizeof(struct sockaddr_in));
+ /*
+ printf("saved {%x}, port {%x} addr {%x}", saved_socket_fd, saved_addr.sin_port, saved_addr.sin_addr.s_addr);
+ printf("family {%x} port {%x} addr {%x}",
+ GLOBALS->udp_servaddr->sin_family,
+ GLOBALS->udp_servaddr->sin_port,
+ GLOBALS->udp_servaddr->sin_addr.s_addr);
+ */
 
  printf("GTKWAVE | ...waveform reloaded\n");
  gtkwavetcl_setvar(WAVE_TCLCB_RELOAD_END, GLOBALS->loaded_file_name, WAVE_TCLCB_RELOAD_END_FLAGS);
