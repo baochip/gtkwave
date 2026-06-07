@@ -34,7 +34,8 @@ build() {
     --with-tcl=${MINGW_PREFIX}/lib \
     --with-tk=${MINGW_PREFIX}/lib \
     --disable-mime-update \
-    --enable-gtk3
+    --enable-gtk3 \
+    LIBS="-lws2_32"
 
   make
 }
