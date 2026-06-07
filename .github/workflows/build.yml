@@ -20,7 +20,7 @@ permissions:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # Windows: build the MSYS2/MinGW package + the standalone .tgz bundle.
+  # Windows: build the MSYS2/MinGW package + the standalone .zip bundle.
   # GTK3 only; 32-bit (MINGW32/i686) is dropped because MSYS2 has wound down
   # 32-bit support. Add it back to the matrix only if you truly need it.
   # MINGW64 is msvcrt-based and runs on the widest range of Windows versions;
@@ -54,6 +54,7 @@ jobs:
             base-devel
             git
             intltool
+            zip
             mingw-w64-${{ matrix.target.arch }}-toolchain
             mingw-w64-${{ matrix.target.arch }}-autotools
             mingw-w64-${{ matrix.target.arch }}-gperf
@@ -85,7 +86,7 @@ jobs:
           if-no-files-found: error
           path: |
             mingw-*gtkwave*.pkg.tar.zst
-            gtkwave_*_standalone.tgz
+            gtkwave_*_standalone.zip
 
   # ---------------------------------------------------------------------------
   # Linux: build a single AppImage that runs on any reasonably modern distro.
@@ -154,6 +155,23 @@ jobs:
             cp "$(find AppDir gtkwave3-gtk3 -name 'gtkwave*.png' -print -quit)" "$ICON"
           fi
 
+      - name: Bundle Tcl/Tk runtime
+        run: |
+          # gtkwave links libtcl/libtk. linuxdeploy bundles those .so files but
+          # NOT Tcl's script library (init.tcl and friends, in /usr/share/tcltk).
+          # Without it the bundled libtcl falls back to the HOST's init.tcl,
+          # which is a different Tcl patch version, and Tcl aborts on the
+          # mismatch. Bundle the scripts and point TCL_LIBRARY/TK_LIBRARY at them
+          # via an AppRun hook (linuxdeploy's AppRun sources apprun-hooks/*.sh).
+          mkdir -p AppDir/usr/share/tcltk
+          cp -r /usr/share/tcltk/tcl8.6 AppDir/usr/share/tcltk/
+          cp -r /usr/share/tcltk/tk8.6  AppDir/usr/share/tcltk/
+          mkdir -p AppDir/apprun-hooks
+          cat > AppDir/apprun-hooks/tcl-tk.sh <<'EOF'
+          export TCL_LIBRARY="$APPDIR/usr/share/tcltk/tcl8.6"
+          export TK_LIBRARY="$APPDIR/usr/share/tcltk/tk8.6"
+          EOF
+
       - name: Fetch linuxdeploy + GTK plugin
         run: |
           base=https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous
@@ -215,5 +233,5 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: |
             dist/**/*.AppImage
-            dist/**/*.tgz
+            dist/**/*.zip
             dist/**/*.pkg.tar.zst
