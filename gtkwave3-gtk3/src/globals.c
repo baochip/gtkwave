@@ -638,7 +638,7 @@ NULL, /* sst_signal_popup_menu */
 /*
  * mouseover.c
  */
-1, /* disable_mouseover 254 */
+0, /* disable_mouseover 254 */
 0, /* clipboard_mouseover */
 NULL, /* mouseover_mouseover_c_1 255 */
 NULL, /* mo_area_mouseover_c_1 256 */
